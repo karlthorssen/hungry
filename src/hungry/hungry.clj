@@ -62,11 +62,14 @@
           :dub {:sound (fn [_ _] (dub2 :freq (-> -16 chosen-scale temperament/equal)))}
           :stick {:sound perc4}})
 
+;; (perc4 :amp 3)
+;; (snare6 :amp 3)
+
 ;(lz/play-note {:drum :stick :part :beat :amp 1})
 
 (defmethod lz/play-note :beat [note]
   (when-let [fn (-> (get kit (:drum note)) :sound)]
-    (fn :amp 0.6)))
+    (fn :amp 0.3)))
 
 (defmethod lz/play-note :bass [{:keys [pitch duration]}]
   (synth/bass :freq (/ pitch 2) :t (* 2 duration)))
@@ -90,8 +93,8 @@
     (piano/piano pitch :vel 60 :velcurve 0.1 :decay 0.2)))
 
 (defmethod lz/play-note :reese [{:keys [pitch duration]}]
-  (reese :freq (/ (temperament/equal pitch) 4)
-         :amp 1
+  (reese :freq (temperament/equal pitch)
+         :amp 0.5
          :dur duration))
 
 (defmethod lz/play-note :rest [_] nil)
@@ -103,12 +106,12 @@
   (map #(zipmap [:time :duration :drum :amp]
                 [%1 (- length %1) drum amp]) times))
 
-(def chords {:i (chord/root chord/triad -7)
-             :ii (chord/root chord/triad -6)
-             :v7 (-> chord/seventh (chord/root -3) (chord/inversion 3))
-             :v (-> chord/triad (chord/root -3))
-             :iv (chord/root chord/triad -4)
-             :vi (-> chord/triad (chord/root -2) (chord/inversion 1))})
+(def chords {:i (chord/root chord/triad -14)
+             :ii (chord/root chord/triad -13)
+             :v7 (-> chord/seventh (chord/root -10) (chord/inversion 3))
+             :v (-> chord/triad (chord/root -10))
+             :iv (chord/root chord/triad -11)
+             :vi (-> chord/triad (chord/root -9) (chord/inversion 1))})
 
 (defn inst-phrase [inst times notes]
   (as-inst inst (phrase times notes)))
@@ -117,47 +120,41 @@
 (def qtr 1)
 (def eth 1/2)
 (def sth 1/4)
-(def swup (partial * 1.1))
-(def swbk (partial * 0.9))
-
-(def swing-beat
-  (->>
-   (reduce with
-           [ ;; (tap :dub (range 8) 8)
-            (tap :fat-kick (range 16) 16)
-            (tap :snare (range 2 16 4) 16)
-            (tap :close-hat (range 0 16 qtr) 16)
-            (tap :close-hat (range (swup eth) 16 qtr) 16)])
-   (all :part :beat)))
+(def swup (partial * 1.05))
+(def swbk (partial * 0.95))
 
 (def track (atom nil))
 (reset! track
-        (let [base-drum (filter #(< (:time %) 16) swing-beat)
+        (let [base-drum (->>
+                         (reduce with
+                                 [(tap :fat-kick (range 16) 16)
+                                  (tap :snare (range 2 16 4) 16)
+                                  (tap :close-hat (range 0 16 qtr) 16)
+                                  (tap :close-hat (range (swup eth) 16 qtr) 16)])
+                         (all :part :beat))
               ticks (all :part :beat (reduce with
-                                             [(tap :close-hat (range 0 16 qtr) 16)
-                                              (tap :close-hat (range (swup eth) 16 qtr) 16)]))
-              chords1 (with
-                       (inst-phrase :piano
-                                    (repeat 16 qtr)
-                                    [3 5 3 5 3 4 5 5  4 6 8 11 12 11 12 11])
-                       (inst-phrase :piano
+                                             [(tap :kick (range 0 16 qtr) 16)]))
+              chords1 (inst-phrase :piano2
                                     [4 4 hf hf 4]
-                                    (map chords [:iv :iv :v :v :vi])))
+                                    (map chords [:iv :iv :v :v :vi]))
+              mel1 (inst-phrase :piano
+                                (repeat 16 qtr)
+                                [3 5 3 5 3 4 5 5  4 6 8 11 12 11 12 11])
 
               chords2 (with ;; TODO better
                        (inst-phrase :piano
-                                    (repeat 16 qtr)
-                                    [1 1 1 1 5 5 5 5 4 3 4 3 4 4 4 4])
-                       (inst-phrase :piano
+                                    [1 1 1 1 1 3  1 1 1 1 1 3]
+                                    [1 1 1 1 5 5  4 3 4 3 4 4 ])
+                       (inst-phrase :reese
                                     [hf hf hf hf hf hf 4]
                                     (map chords [:ii :ii :vi :vi :v7 :v7 :v7])))
 
 
               ]
-          (->> ;; base-drum
-           ;; (then (with ticks base-drum chords1))
-           (times 3 (with ticks chords1))
-           (then chords2)
+          (->>
+           chords1
+           (then (times 3 (with ticks chords1 mel1)))
+           (then (times 2 (with ticks base-drum chords2)))
            (tempo (bpm 110)))))
 (comment
   ;; i  ii iii iv v  vi vii
@@ -170,7 +167,9 @@
 
   (do
     (recording-start "hungry.wav")
-    @(lz/play @track)(lz/play @track)
+    @(lz/play @track)
     (recording-stop))
+
+  (piano/piano 16)
 
   )
