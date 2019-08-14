@@ -191,6 +191,14 @@
         reverb (free-verb clp 0.4 0.8 0.2)]
     (* amp (env-gen (perc 0.0001 dur) :action 0) reverb)))
 
+(definst plucky [freq 440 dur 1 amp 1 cutoff 1500 fil-dur 0.1]
+  (let [env (env-gen (asr 0 1 1) (line:kr 1.0 0.0 dur) :action FREE)
+        level (+ (* 0.85 freq) (env-gen (perc 0 fil-dur) :level-scale cutoff))]
+    (-> (pulse freq)
+        (lpf level)
+        (free-verb :room 1 :damp 0.45)
+        (* env amp))))
+
 (comment
 
   )

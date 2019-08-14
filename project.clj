@@ -34,7 +34,8 @@
             :url "https://www.eclipse.org/legal/epl-2.0/"}
   :dependencies [[org.clojure/clojure "1.9.0"]
                  [overtone "0.10.6"]
-                 [leipzig "0.10.0"]]
+                 [leipzig "0.10.0"]
+                 [seesaw "1.5.0"]]
   :jvm-opts ^:replace ["-Xms512m" "-Xmx1g"                 ; Minimum and maximum sizes of the heap
                        "-XX:+CMSConcurrentMTEnabled"       ; Enable multi-threaded concurrent gc work (ParNewGC)
                        "-XX:MaxGCPauseMillis=20"           ; Specify a target of 20ms for max gc pauses

@@ -14,8 +14,11 @@
             [overtone.inst.drum :as drum]
             [overtone.inst.sampled-piano :refer [sampled-piano]]
             [hungry.inst :refer [organ bass sing wobble-organ supersaw
-                                 dub2 reese string bass2 organ2]]
-            [overtone.core :refer :all :exclude [tap]]))
+                                 dub2 reese string bass2 organ2 plucky]]
+            [overtone.core :refer :all :exclude [tap]]
+            [hungry.keys :as player]))
+
+
 
 (defmacro defperc [name path]
   `(let [buf# (sample ~path)]
@@ -49,11 +52,16 @@
        (where :pitch chosen-scale)
        (all :part inst)))
 
+(def rizer-sample (load-sample "resources/samples/BUILDS/SYNTH RIZERS/Rizer 3 trim.wav"))
+(definst rizer-inst [amp 1 rate 1]
+  (* amp (scaled-play-buf :num-channels 2 :buf-num (:id rizer-sample) :rate rate)))
+
 (defperc perc4 "resources/samples/PERCS/PERC4.wav")
 (defperc fat-kick "resources/samples/KICKS/KICK7.wav")
 (defperc clap4 "resources/samples/SNARES:CLAPS/CLAP4.wav")
 (defperc kick10 "resources/samples/KICKS/KICK10.wav")
 (defperc shaker4 "resources/samples/SHAKERS/SHAKER4.wav")
+(defperc shaker5 "resources/samples/SHAKERS/SHAKER5.wav")
 (defperc snare6 "resources/samples/SNARES:CLAPS/SNARE6.wav")
 (defperc snare "resources/samples/SNARES:CLAPS/SNARE3.wav")
 (def kit {:fat-kick {:sound fat-kick :amp 0.3}
@@ -62,13 +70,21 @@
           :open-hat {:sound shaker4 :amp 0.1}
           :snare {:sound snare :amp 0.05}
           :dub {:sound (fn [_ _] (dub2 :freq (-> -16 chosen-scale temperament/equal)))}
+          :rizer {:sound (fn [& {:keys [amp]}]
+                           (rizer-inst :amp (or amp 1) :rate (/ 128 200))) :amp 1}
+          :rizer-fast {:sound (fn [& {:keys [amp]}]
+                                (rizer-inst :amp (or amp 1) :rate (/ 128 100))) :amp 1}
           :stick {:sound perc4 :amp 0.1}})
 
-;; (perc4 :amp 3)
-;; (snare6 :amp 3)
+;; (rizer-inst :rate (float (/ 128 100)))
 
-; (lz/play-note {:drum :close-hat :part :beat})
+;; (lz/play-note {:drum :close-hat :part :beat :amp 1})
+; (rizer-inst)
 
+
+(defmethod lz/play-note :plucky [{:keys [pitch] :as note}]
+  (when pitch
+    (plucky :freq (temperament/equal pitch) :cutoff 900)))
 
 (defmethod lz/play-note :beat [note]
   (when-let [fn (-> (get kit (:drum note)) :sound)]
@@ -116,6 +132,17 @@
 (defn tap [drum times length ]
   (map #(zipmap [:time :duration :drum]
                 [%1 (- length %1) drum]) times))
+
+(defn fade-out [notes]
+  (let [a (apply min (map :time notes))
+        b (apply max (map :time notes))
+        fade (fn [n]
+               (let [; _ (prn n)
+                     t (:time n)
+                     x (/ (- t a)
+                          (- b a))]
+                 (update n :amp #(* (- 1 x) (or % 0.6)))))]
+    (map fade notes)))
 
 (def chords {:i (chord/root chord/triad -14)
              :ii (chord/root chord/triad -13)
@@ -165,10 +192,27 @@
                                     (repeat 16 qtr)
                                     [3 5 3 5 3 4 5 5  4 6 8 11 12 11 12 11])))
 
-              chorus-bass (inst-phrase :reese [4 4 hf hf 4] (map (partial + -14) [3 3 4 4 5]))
+              chorus-bass (inst-phrase :reese
+                                       [4 4 hf hf 4]
+                                       (map (partial + -14) [3 3 4 4 5]))
 
-              prog2 (phrase [hf hf hf hf hf hf 4]
-                                 (map chords [:ii :ii :iv :iv :iii :iii :iii-inv]))
+              prog2-phrase (phrase
+                            [hf hf hf hf hf hf 4]
+                            (map chords [:ii :ii :iv :iv :iii-inv :iii-inv :iii]))
+              prog2 (as-inst :piano2 prog2-phrase)
+              prog2-saw (->> prog2-phrase
+                             (as-inst :supersaw)
+                             (where :pitch (comp scale/high scale/high)))
+              melody2 (inst-phrase :piano2
+                                   (concat (repeat 30 eth) [qtr])
+                                   (map (partial + 7) (concat (repeat 16 3) (repeat 7 2) [3  4 4 4 4  4 4 4])))
+              bass2-sparse (inst-phrase :reese
+                                 [4 4 4 4]
+                                 [-6 nil -5 nil])
+              bass2-dense (inst-phrase :reese
+                                       [4 4 4 4]
+                                       [-4 -4 -5 -5])
+
               verse-piano (with
                            (inst-phrase :piano2 ;; TODO better melody here
                                         [1 1 1 1 4  1 1 1 1 4]
@@ -191,7 +235,7 @@
                              (with base-drum))
 
               steady-drum (->> [(tap :kick (range 0 16 2) 16)
-                                (tap :stick [0] 16)
+                                ;; (tap :stick [0] 16)
                                 (tap :snare (range 1 16 2)  16)
                                 (tap :snare (range 3/4 16 2)  16)
                                 (tap :snare [(+ 13 1/4)] 16)
@@ -206,31 +250,66 @@
                                          [3 3 3 4]))
               steady-melody (inst-phrase :piano2
                                          [4   eth eth eth eth eth eth eth eth eth eth eth eth eth eth eth eth 2 2]
-                                         [nil 5   5   5   5   5   5   5   5   6   6   6   6   4   4   4   4   5 5])]
-          ;; (->>
-          ;;  verse-piano
-          ;;  (then (times 2 verse-piano))
-          ;;  (then (with ticks verse-piano))
+                                         [nil 5   5   5   5   5   5   5   5   6   6   6   6   4   4   4   4   5 5])
+              rizer [{:part :beat :drum :rizer :time 0 :duration 32 :amp 0.5}
+                     {:part :beat :drum :rizer-fast :time 16 :duration 16  :amp 0.5}]
 
-          ;;  (then (with base-drum verse-piano))
-          ;;  (then (with base-drum verse-piano verse-bass))
-          ;;  (then (with ticks      prog1-piano verse-bass))
-          ;;  (then (with build-drum prog1-piano chorus-bass))
-
-          ;;  (then (with drop-drum  chorus chorus-bass prog1-saw))
-          ;;  (then (with steady-drum steady-intro steady-melody verse-bass prog1-saw))
-          ;;  (then (with steady-drum steady-melody chorus-bass prog1-saw))
-          ;;  (then (with steady-drum (all :part :piano2 chorus) verse-bass prog1-saw))
-
-          ;;  (then (with steady-drum chorus chorus-bass prog1-saw))
-          ;;  (then (with steady-drum steady-intro steady-melody verse-bass prog1-saw))
-          ;;  (then (with steady-drum steady-melody chorus-bass prog1-saw))
-          ;;  (then (with steady-drum steady-melody chorus-bass))
-
-
-          ;;  (tempo (bpm 128)))
+              outro-fade (->>
+                          (with ticks steady-melody chorus-bass)
+                          (times 2)
+                          fade-out)]
           (->>
-           (with steady-drum (as-inst :piano2 prog2) )
+           verse-piano
+           (then (times 2 verse-piano))
+           (then (with ticks verse-piano))
+
+           (then (with base-drum verse-piano))
+           (then (with base-drum verse-piano verse-bass))
+           (then (with rizer
+                       (->>
+                        (with ticks prog1-piano verse-bass)
+                        (then (with build-drum prog1-piano chorus-bass)))))
+
+           ;; first drop
+           (then (with drop-drum  chorus chorus-bass prog1-saw))
+           (then (with steady-drum steady-intro steady-melody verse-bass prog1-saw))
+           (then (with steady-drum steady-melody chorus-bass prog1-saw))
+           (then (with steady-drum (all :part :piano2 chorus) verse-bass prog1-saw))
+
+           (then (with steady-drum chorus chorus-bass prog1-saw))
+           (then (with steady-drum steady-intro steady-melody verse-bass prog1-saw))
+           (then (with steady-drum steady-melody chorus-bass prog1-saw))
+           (then (with ticks steady-melody chorus-bass))
+
+           ;; second verse
+           (then (with steady-drum prog2 melody2 bass2-sparse))
+           (then (with steady-drum prog2 melody2 bass2-dense))
+           (then (with steady-drum prog2 melody2 bass2-dense))
+           (then (with steady-drum prog2 (all :part :supersaw melody2) bass2-sparse))
+
+           (then (with steady-drum prog2 prog2-saw bass2-dense))
+           (then (with steady-drum prog2 prog2-saw melody2 bass2-dense))
+           (then (with rizer (->>
+                              (with steady-drum prog2 prog2-saw melody2 bass2-dense)
+                              (then (with build-drum prog2 (all :part :supersaw melody2) bass2-sparse)))))
+
+           ;; second drop
+           (then (with drop-drum  chorus chorus-bass prog1-saw))
+           (then (with steady-drum steady-intro steady-melody verse-bass prog1-saw))
+           (then (with steady-drum steady-melody chorus-bass prog1-saw))
+           (then (with steady-drum (all :part :piano2 chorus) verse-bass prog1-saw))
+
+           (then (with steady-drum chorus chorus-bass prog1-saw))
+           (then (with steady-drum steady-intro steady-melody verse-bass prog1-saw))
+           (then (with steady-drum steady-melody chorus-bass prog1-saw))
+           (then (with ticks steady-melody chorus-bass))
+
+           (then outro-fade)
+
+           (tempo (bpm 128)))
+          #_(->>
+           (with steady-drum prog2-saw)
+           (then (with steady-drum prog1-saw))
            (tempo (bpm 128)))
           ))
 
@@ -242,6 +321,12 @@
   (lz/stop)
   (lz/play @track)
   (lz/stop)
+
+  (player/play-inst (fn [note]
+                      (-> note
+                          (assoc :part :piano2)
+                          (update :pitch chosen-scale)
+                          lz/play-note)))
 
   (time @(lz/play @track))
 
@@ -255,12 +340,25 @@
    lz/play)
 
 
-  (->> (inst-phrase :supersaw
-                    [4 4 hf hf 4]
-                    (map chords [:iv :iv :v :v :vi]))
-       (tempo (bpm 110))
-       (where :pitch (comp scale/high scale/high))
-       lz/play)
+  (let [rizer [{:part :beat :drum :rizer :time 0 :duration 32 :rate 2.0
+                :amp 2}
+               {:part :beat :drum :rizer-fast :time 16 :duration 16 :rate 2.0
+                :amp 2}]
+        ticks (all :part :beat (tap :stick (range 32) 32))
+        kicks (all :part :beat (tap :kick (range 0 32 4) 32))]
+   (->> #_(inst-phrase :plucky
+                     (concat [8
+                              hf hf
+                              hf hf
+                              qtr eth eth eth eth eth eth]
+                             (repeat 4 eth) (repeat 8 sth))
+                     (concat [nil] (repeat 2 5) (repeat 2 3) (repeat 7 4) (repeat 12 2)))
+        rizer
+        (with ticks kicks)
+        (tempo (bpm 128))
+        lz/play))
+
+  (- 9.555 0.166)
 
   (bass2 :amp 0.3)
   (reese    (temperament/equal (chosen-scale -13)))
